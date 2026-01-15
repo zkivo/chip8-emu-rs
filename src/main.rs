@@ -36,7 +36,6 @@ const FONT: [u8; FONT_BYTES] = [
     0xF0, 0x80, 0xF0, 0x80, 0x80, // F
 ];
 
-#[derive(Debug)]
 struct VM {
     v: [u8; 16],
     pc: u16,
@@ -50,7 +49,6 @@ struct VM {
 
     delay_timer: u8,
     sound_timer: u8,
-
 }
 
 impl VM {
