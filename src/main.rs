@@ -1,6 +1,7 @@
 use rand;
+use sdl3::keyboard::Scancode;
 use std::time::{Duration, Instant};
-use std::{env, fs, path::Path, process, thread::sleep};
+use std::{env, fs, path::Path, process};
 
 use sdl3::event::Event;
 use sdl3::keyboard::Keycode;
@@ -377,11 +378,6 @@ impl VM {
     }
 }
 
-fn u8_to_0rgb(v: u8) -> u32 {
-    // 0x00RRGGBB
-    (v as u32) << 16 | (v as u32) << 8 | (v as u32)
-}
-
 fn parse_args() -> Vec<u8> {
     // return ROM data
     let args: Vec<String> = env::args().collect();
@@ -419,6 +415,7 @@ fn main() {
     // Window setup
     let sdl_context = sdl3::init().unwrap();
     let video_subsystem = sdl_context.video().unwrap();
+    let mut event_pump = sdl_context.event_pump().unwrap();
 
     let window = video_subsystem
         .window("chip8-emu-rs", WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -427,97 +424,141 @@ fn main() {
         .unwrap();
 
     let mut canvas = window.into_canvas();
+
     // this allows to treat the canvas as FB_WIDTH x FB_WIDTH surface and then
     // SDL automatically scales it to the window resolution
     let _ = canvas.set_logical_size(
         FB_WIDTH,
-        FB_WIDTH,
-        sdl3_sys::render::SDL_RendererLogicalPresentation(1), //STRETCH
+        FB_HEIGHT,
+        sdl3_sys::render::SDL_RendererLogicalPresentation(2), //STRETCH
     );
 
-    canvas.set_draw_color(Color::RGB(0, 222, 0));
-    canvas.clear(); // this cloros the screen the color above
-    canvas.present();
+    let mut prev_framebuffer: Vec<u8> = vec![0; (FB_WIDTH * FB_HEIGHT) as usize];
+    // Audio setup
 
-    // let mut fb_window: Vec<u32> = vec![0; WINDOW_WIDTH * WINDOW_HEIGHT];
+    // timings
+    let cpu_hz = 600.0;
+    let cpu_dt = Duration::from_secs_f64(1.0 / cpu_hz);
+    let timer_dt = Duration::from_secs_f64(1.0 / 60.0);
 
-    // // Audio setup
+    let mut last = Instant::now();
+    let mut cpu_acc = Duration::ZERO;
+    let mut timer_acc = Duration::ZERO;
+    let mut frame_acc = Duration::ZERO;
 
-    // // timings
-    // let cpu_hz = 600.0;
-    // let cpu_dt = Duration::from_secs_f64(1.0 / cpu_hz);
-    // let timer_dt = Duration::from_secs_f64(1.0 / 60.0);
+    'running: loop {
+        let now = Instant::now();
+        let dt = now - last;
+        last = now;
 
-    // let mut last = Instant::now();
-    // let mut cpu_acc = Duration::ZERO;
-    // let mut timer_acc = Duration::ZERO;
-    // let mut frame_acc = Duration::ZERO;
+        cpu_acc += dt;
+        timer_acc += dt;
+        frame_acc += dt;
 
-    // while window.is_open() {
-    //     let now = Instant::now();
-    //     let dt = now - last;
-    //     last = now;
+        // run as many CPU cycles as needed
+        while cpu_acc >= cpu_dt {
+            vm.step();
+            cpu_acc -= cpu_dt;
+        }
 
-    //     cpu_acc += dt;
-    //     timer_acc += dt;
-    //     frame_acc += dt;
+        // timers at 60Hz
+        while timer_acc >= timer_dt {
+            vm.step_timers();
+            timer_acc -= timer_dt;
+        }
 
-    //     // run as many CPU cycles as needed
-    //     while cpu_acc >= cpu_dt {
-    //         vm.step();
-    //         cpu_acc -= cpu_dt;
-    //     }
+        // render at 60Hz
+        while frame_acc >= timer_dt {
+            // if vm.draw_flag {
+            canvas.set_draw_color(Color::RGB(0, 0, 0));
+            canvas.clear(); // this cloros the screen the color above
 
-    //     // timers at 60Hz
-    //     while timer_acc >= timer_dt {
-    //         vm.step_timers();
-    //         timer_acc -= timer_dt;
-    //     }
+            for i in 0..(FB_WIDTH * FB_HEIGHT) as usize {
+                prev_framebuffer[i] = ((prev_framebuffer[i] as f32) * 0.6).round() as u8;
+                prev_framebuffer[i] = prev_framebuffer[i].saturating_add(vm.framebuffer[i]);
+                canvas.set_draw_color(Color::RGB(
+                    prev_framebuffer[i],
+                    prev_framebuffer[i],
+                    prev_framebuffer[i],
+                ));
+                let _ = canvas.draw_point(sdl3::render::FPoint {
+                    x: (i % FB_WIDTH as usize) as f32,
+                    y: (i / FB_WIDTH as usize) as f32,
+                });
+            }
+            canvas.present();
+            frame_acc -= timer_dt;
+        }
 
-    //     // render at 60Hz
-    //     while frame_acc >= timer_dt {
-    //         if vm.draw_flag {
-    //             scale_framebuffer(&vm.framebuffer, &mut fb_window);
-    //             window
-    //                 .update_with_buffer(&fb_window, WINDOW_WIDTH, WINDOW_HEIGHT)
-    //                 .unwrap();
-    //             vm.draw_flag = false;
-    //         } else {
-    //             window.update();
-    //         }
-    //         frame_acc -= timer_dt;
-    //     }
+        // if vm.sound_timer > 0 {
+        //     if sink.is_paused() {
+        //         sink.play();
+        //     }
+        // } else {
+        //     if !sink.is_paused() {
+        //         sink.pause();
+        //     }
+        // }
 
-    //     if vm.sound_timer > 0 {
-    //         if sink.is_paused() {
-    //             sink.play();
-    //         }
-    //     } else {
-    //         if !sink.is_paused() {
-    //             sink.pause();
-    //         }
-    //     }
-
-    //     vm.keyboard = [false; 16];
-    //     window.get_keys().iter().for_each(|key| match key {
-    //         Key::Key1 => vm.keyboard[1] = true,
-    //         Key::Key2 => vm.keyboard[2] = true,
-    //         Key::Key3 => vm.keyboard[3] = true,
-    //         Key::Q => vm.keyboard[4] = true,
-    //         Key::W => vm.keyboard[5] = true,
-    //         Key::E => vm.keyboard[6] = true,
-    //         Key::A => vm.keyboard[7] = true,
-    //         Key::S => vm.keyboard[8] = true,
-    //         Key::D => vm.keyboard[9] = true,
-    //         Key::Z => vm.keyboard[0xA] = true,
-    //         Key::X => vm.keyboard[0x0] = true,
-    //         Key::C => vm.keyboard[0xB] = true,
-    //         Key::Key4 => vm.keyboard[0xC] = true,
-    //         Key::R => vm.keyboard[0xD] = true,
-    //         Key::F => vm.keyboard[0xE] = true,
-    //         Key::V => vm.keyboard[0xF] = true,
-    //         Key::Escape => process::exit(0),
-    //         _ => (),
-    //     });
-    // }
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::Quit { .. }
+                | Event::KeyDown {
+                    keycode: Some(Keycode::Escape),
+                    ..
+                } => break 'running,
+                _ => {}
+            }
+        }
+        vm.keyboard = [false; 16];
+        let keys = event_pump.keyboard_state();
+        if keys.is_scancode_pressed(Scancode::_1) {
+            vm.keyboard[1] = true;
+        }
+        if keys.is_scancode_pressed(Scancode::_2) {
+            vm.keyboard[2] = true;
+        }
+        if keys.is_scancode_pressed(Scancode::_3) {
+            vm.keyboard[3] = true;
+        }
+        if keys.is_scancode_pressed(Scancode::Q) {
+            vm.keyboard[4] = true;
+        }
+        if keys.is_scancode_pressed(Scancode::W) {
+            vm.keyboard[5] = true;
+        }
+        if keys.is_scancode_pressed(Scancode::E) {
+            vm.keyboard[6] = true;
+        }
+        if keys.is_scancode_pressed(Scancode::A) {
+            vm.keyboard[7] = true;
+        }
+        if keys.is_scancode_pressed(Scancode::S) {
+            vm.keyboard[8] = true;
+        }
+        if keys.is_scancode_pressed(Scancode::D) {
+            vm.keyboard[9] = true;
+        }
+        if keys.is_scancode_pressed(Scancode::Z) {
+            vm.keyboard[0xA] = true;
+        }
+        if keys.is_scancode_pressed(Scancode::X) {
+            vm.keyboard[0x0] = true;
+        }
+        if keys.is_scancode_pressed(Scancode::C) {
+            vm.keyboard[0xB] = true;
+        }
+        if keys.is_scancode_pressed(Scancode::_4) {
+            vm.keyboard[0xC] = true;
+        }
+        if keys.is_scancode_pressed(Scancode::R) {
+            vm.keyboard[0xD] = true;
+        }
+        if keys.is_scancode_pressed(Scancode::F) {
+            vm.keyboard[0xE] = true;
+        }
+        if keys.is_scancode_pressed(Scancode::V) {
+            vm.keyboard[0xF] = true;
+        }
+    }
 }
