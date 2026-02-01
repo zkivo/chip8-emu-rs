@@ -469,18 +469,14 @@ fn main() {
 
         // render at 60Hz
         while frame_acc >= timer_dt {
-            // if vm.draw_flag {
-            canvas.set_draw_color(Color::RGB(0, 0, 0));
-            canvas.clear(); // this cloros the screen the color above
-
             for i in 0..(FB_WIDTH * FB_HEIGHT) as usize {
-                prev_framebuffer[i] = ((prev_framebuffer[i] as f32) * 0.6).round() as u8;
+                prev_framebuffer[i] = ((prev_framebuffer[i] as f32) * 0.7).round() as u8;
                 prev_framebuffer[i] = prev_framebuffer[i].saturating_add(vm.framebuffer[i]);
-                canvas.set_draw_color(Color::RGB(
-                    prev_framebuffer[i],
-                    prev_framebuffer[i],
-                    prev_framebuffer[i],
-                ));
+                let v = prev_framebuffer[i] as u16;
+                let r = ((255 * (255 - v) + 60 * v) / 255) as u8;
+                let g = ((176 * (255 - v) + 57 * v) / 255) as u8;
+                let b = ((0 * (255 - v) + 60 * v) / 255) as u8;
+                canvas.set_draw_color(Color::RGB(r, g, b));
                 let _ = canvas.draw_point(sdl3::render::FPoint {
                     x: (i % FB_WIDTH as usize) as f32,
                     y: (i / FB_WIDTH as usize) as f32,
