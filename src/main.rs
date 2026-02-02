@@ -47,7 +47,6 @@ struct VM {
     memory: [u8; MEMORY_SIZE],
     stack: Vec<u16>,
     framebuffer: [u8; (FB_WIDTH * FB_HEIGHT) as usize],
-    draw_flag: bool,
     keyboard: [bool; 16],
 
     delay_timer: u8,
@@ -66,7 +65,6 @@ impl VM {
             delay_timer: 0,
             sound_timer: 0,
             keyboard: [false; 16],
-            draw_flag: false,
         }
     }
 
@@ -96,7 +94,6 @@ impl VM {
                         for idx in 0..(FB_WIDTH * FB_HEIGHT) as usize {
                             self.framebuffer[idx] = 0;
                         }
-                        self.draw_flag = true;
                     }
 
                     0x00EE => {
@@ -258,7 +255,6 @@ impl VM {
                         }
                     }
                 }
-                self.draw_flag = true;
             }
 
             0xE000 => {
@@ -453,7 +449,7 @@ fn main() {
                 });
                 self.phase = (self.phase + self.phase_inc) % 1.0;
             }
-            stream.put_data_f32(&out);
+            let _ = stream.put_data_f32(&out);
         }
     }
 
@@ -534,7 +530,7 @@ fn main() {
                 device.resume().expect("Failed to start playback");
             }
         } else {
-            device.pause();
+            let _ = device.pause();
         }
 
         for event in event_pump.poll_iter() {
