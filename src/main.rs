@@ -1,11 +1,11 @@
 use rand;
-use sdl3::keyboard::Scancode;
-use std::time::{Duration, Instant};
-use std::{env, fs, path::Path, process};
-
+use sdl3::audio::{AudioCallback, AudioFormat, AudioSpec, AudioStream};
 use sdl3::event::Event;
 use sdl3::keyboard::Keycode;
+use sdl3::keyboard::Scancode;
 use sdl3::pixels::Color;
+use std::time::{Duration, Instant};
+use std::{env, fs, path::Path, process};
 
 // CHIP-8 framebuffer size
 const FB_WIDTH: u32 = 64;
@@ -435,6 +435,49 @@ fn main() {
 
     let mut prev_framebuffer: Vec<u8> = vec![0; (FB_WIDTH * FB_HEIGHT) as usize];
     // Audio setup
+    struct SquareWave {
+        phase_inc: f32,
+        phase: f32,
+        volume: f32,
+    }
+
+    impl AudioCallback<f32> for SquareWave {
+        fn callback(&mut self, stream: &mut AudioStream, requested: i32) {
+            let mut out = Vec::<f32>::with_capacity(requested as usize);
+            // Generate a square wave
+            for _ in 0..requested {
+                out.push(if self.phase <= 0.5 {
+                    self.volume
+                } else {
+                    -self.volume
+                });
+                self.phase = (self.phase + self.phase_inc) % 1.0;
+            }
+            stream.put_data_f32(&out);
+        }
+    }
+
+    let sdl_context = sdl3::init().unwrap();
+    let audio_subsystem = sdl_context.audio().unwrap();
+
+    let source_freq = 44100;
+    let source_spec = AudioSpec {
+        freq: Some(source_freq),
+        channels: Some(1),                    // mono
+        format: Some(AudioFormat::f32_sys()), // floating 32 bit samples
+    };
+
+    // Initialize the audio callback
+    let device = audio_subsystem
+        .open_playback_stream(
+            &source_spec,
+            SquareWave {
+                phase_inc: 440.0 / source_freq as f32,
+                phase: 0.0,
+                volume: 0.25,
+            },
+        )
+        .unwrap();
 
     // timings
     let cpu_hz = 600.0;
@@ -486,15 +529,13 @@ fn main() {
             frame_acc -= timer_dt;
         }
 
-        // if vm.sound_timer > 0 {
-        //     if sink.is_paused() {
-        //         sink.play();
-        //     }
-        // } else {
-        //     if !sink.is_paused() {
-        //         sink.pause();
-        //     }
-        // }
+        if vm.sound_timer > 0 {
+            if device.queued_bytes() == Ok(0) {
+                device.resume().expect("Failed to start playback");
+            }
+        } else {
+            device.pause();
+        }
 
         for event in event_pump.poll_iter() {
             match event {
